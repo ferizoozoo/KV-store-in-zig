@@ -14,14 +14,10 @@ pub fn save_record(key: []const u8, value: []const u8) !void {
 
     try file.seekFromEnd(0);
 
-    var buffer: [64]u8 = [_]u8{0} ** 64;
-    var fbs = std.io.fixedBufferStream(&buffer);
-    var writer = fbs.writer();
-
-    try writer.writeAll(key);
-    try writer.writeAll(" ");
-    try writer.writeAll(value);
-    try writer.writeAll("\n"); // Add a newline so records are separable
+    try file.writeAll(key);
+    try file.writeAll(" ");
+    try file.writeAll(value);
+    try file.writeAll("\n"); // Add a newline so records are separable
 }
 
 pub fn get_record(offset: u64, length: usize, allocator: std.mem.Allocator) !Value {
