@@ -9,16 +9,18 @@ pub const Key = struct {
     val: []const u8,
     ttl: u64 = 10,
 
-    pub fn init(new_key: []const u8, allocator: std.mem.Allocator) !Key {
+    pub fn init(new_key: []const u8, allocator: std.mem.Allocator) !*Key {
         const owned_val = try allocator.dupe(u8, new_key);
-        return Key{ .val = owned_val, .ttl = 10 };
+        const self = try allocator.create(Key);
+        self.* = Key{ .val = owned_val, .ttl = 10 };
+        return self;
     }
 
-    pub fn deinit(self: Key, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Key, allocator: std.mem.Allocator) void {
         allocator.free(self.val);
     }
 
-    pub fn get(self: Key) []const u8 {
+    pub fn get(self: *Key) []const u8 {
         return self.val;
     }
 };
@@ -112,15 +114,14 @@ pub const KVStore = struct {
         };
     }
 
-    pub fn insert(self: *KVStore, key: Key, value: Value) !void {
-        try self.table.put(key, value);
+    pub fn insert(self: *KVStore, key: *Key, value: *Value) !void {
+        try self.table.put(key.*, value.*);
         _ = try persistance.save_record(key.val, value.val.items);
     }
 
-    pub fn get(self: *KVStore, key: Key, allocator: std.mem.Allocator) !?Value {
-        var value = self.table.get(key);
+    pub fn get(self: *KVStore, key: *Key, allocator: std.mem.Allocator) !?Value {
+        var value = self.table.get(key.*);
         if (value == null) {
-            std.debug.print("found value: {any}", .{value});
             value = try persistance.get_record(offset, length, allocator);
         }
 
