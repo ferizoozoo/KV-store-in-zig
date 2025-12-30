@@ -20,7 +20,7 @@ pub fn save_record(key: []const u8, value: []const u8) !void {
     try file.writeAll("\n"); // Add a newline so records are separable
 }
 
-pub fn get_record(offset: u64, length: usize, allocator: std.mem.Allocator) !Value {
+pub fn get_record(offset: u64, length: usize, allocator: std.mem.Allocator) ![]const u8 {
     const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
     defer file.close();
 
@@ -28,5 +28,5 @@ pub fn get_record(offset: u64, length: usize, allocator: std.mem.Allocator) !Val
     defer buffer.deinit(allocator);
 
     _ = try file.pread(buffer.items, offset);
-    return Value{ .val = buffer };
+    return buffer.items;
 }

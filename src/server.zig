@@ -12,11 +12,14 @@ pub const DBServer = struct {
     port: u16,
     host: []const u8,
     address: std.net.Address,
-    store: store.KVStore,
+    store: *store.KVStore,
 
     pub fn init(port: u16, host: []const u8) !DBServer {
+        const allocator = std.heap.page_allocator;
         const address = try std.net.Address.parseIp4(host, port);
-        const kvStore = store.KVStore.new(std.heap.page_allocator);
+        const kvStore = try store.KVStore.new(allocator);
+
+        std.debug.print("Initialized DBServer on {s}:{d}\n", .{ host, port });
 
         return DBServer{
             .port = port,
@@ -38,6 +41,7 @@ pub const DBServer = struct {
         try self.handle_connection(&server);
     }
 
+    // TODO: refactor this to handle multiple connections and also shouldn't use self
     fn handle_connection(self: *DBServer, server: *std.net.Server) !void {
         while (true) {
             const connection = server.accept() catch |err| {
@@ -91,23 +95,31 @@ pub const DBServer = struct {
 
     fn parse_set_request(self: *DBServer, request: []const u8) !void {
         var parts = std.mem.splitScalar(u8, request, ' ');
-        const key = parts.next() orelse return;
-        const value = parts.next() orelse return;
+        _ = parts.next(); // skip "SET"
+        const k = parts.next() orelse return;
+        const v = parts.next() orelse return;
 
-        const k = try store.Key.init(key, std.heap.page_allocator);
-        const v = try store.Value.init(std.heap.page_allocator);
+        const key = std.mem.trim(u8, k, "\n\r\t");
+        const value = std.mem.trim(u8, v, "\n\r\t");
 
-        try self.store.insert(k, v);
+        try self.store.insert(key, value);
         std.debug.print("Storing key: {s} with value: {s}\n", .{ key, value });
     }
 
     fn parse_get_request(self: *DBServer, request: []const u8) !void {
         var parts = std.mem.splitScalar(u8, request, ' ');
+        _ = parts.next(); // skip "GET"
         const key = parts.next() orelse return;
-
-        const k = try store.Key.init(key, std.heap.page_allocator);
+        const k = std.mem.trim(u8, key, "\n\r\t");
 
         const value = try self.store.get(k, std.heap.page_allocator);
-        std.debug.print("Received GET request for key: {s}, value: {any}\n", .{ key, value });
+        if (value == null) {
+            std.debug.print("Key: {s} not found\n", .{k});
+            return;
+        }
+
+        const v = std.mem.trim(u8, value.?, "\n\r\t");
+
+        std.debug.print("Received GET request for key: {s}, value: {s}\n", .{ k, v });
     }
 };
