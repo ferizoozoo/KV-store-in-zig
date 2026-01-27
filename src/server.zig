@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const store = @import("store.zig");
+const parse_request = @import("parse.zig").parse_request;
 
 const requestType = enum {
     GET,
@@ -38,11 +39,10 @@ pub const DBServer = struct {
         defer server.deinit();
 
         std.debug.print("Server listening on {s}:{d}\n", .{ self.host, self.port });
-        try self.handle_connection(&server);
+        try handle_connection(self.store, &server);
     }
 
-    // TODO: refactor this to handle multiple connections and also shouldn't use self
-    fn handle_connection(self: *DBServer, server: *std.net.Server) !void {
+    fn handle_connection(s: *store.KVStore, server: *std.net.Server) !void {
         while (true) {
             const connection = server.accept() catch |err| {
                 std.debug.print("Error accepting connection: {any}\n", .{err});
@@ -80,46 +80,8 @@ pub const DBServer = struct {
 
             if (bytes_read > 0) {
                 // if get request, read, if set request, write
-                try self.parse_request(buffer[0..bytes_read]);
+                try parse_request(s, buffer[0..bytes_read]);
             }
         }
-    }
-
-    fn parse_request(self: *DBServer, request: []const u8) !void {
-        if (request.len >= 3 and std.mem.eql(u8, request[0..3], "GET")) {
-            try self.parse_get_request(request);
-        } else if (request.len >= 3 and std.mem.eql(u8, request[0..3], "SET")) {
-            try self.parse_set_request(request);
-        }
-    }
-
-    fn parse_set_request(self: *DBServer, request: []const u8) !void {
-        var parts = std.mem.splitScalar(u8, request, ' ');
-        _ = parts.next(); // skip "SET"
-        const k = parts.next() orelse return;
-        const v = parts.next() orelse return;
-
-        const key = std.mem.trim(u8, k, "\n\r\t");
-        const value = std.mem.trim(u8, v, "\n\r\t");
-
-        try self.store.insert(key, value);
-        std.debug.print("Storing key: {s} with value: {s}\n", .{ key, value });
-    }
-
-    fn parse_get_request(self: *DBServer, request: []const u8) !void {
-        var parts = std.mem.splitScalar(u8, request, ' ');
-        _ = parts.next(); // skip "GET"
-        const key = parts.next() orelse return;
-        const k = std.mem.trim(u8, key, "\n\r\t");
-
-        const value = try self.store.get(k, std.heap.page_allocator);
-        if (value == null) {
-            std.debug.print("Key: {s} not found\n", .{k});
-            return;
-        }
-
-        const v = std.mem.trim(u8, value.?, "\n\r\t");
-
-        std.debug.print("Received GET request for key: {s}, value: {s}\n", .{ k, v });
     }
 };

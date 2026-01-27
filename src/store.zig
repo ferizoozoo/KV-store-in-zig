@@ -27,7 +27,6 @@ pub const KVStore = struct {
         const k = try self.table.allocator.dupe(u8, key);
         const v = try self.table.allocator.dupe(u8, value);
         try self.table.put(k, v);
-        _ = try persistance.save_record(k, v);
     }
 
     pub fn get(self: *KVStore, key: []const u8, allocator: std.mem.Allocator) !?[]const u8 {
@@ -44,6 +43,11 @@ pub const KVStore = struct {
 
     pub fn clear(self: *KVStore) void {
         self.table.clearAndFree();
+    }
+
+    // TODO: should be used appropriately to persist data
+    pub fn flush(self: *KVStore) !void {
+        try persistance.flush(self.*);
     }
 };
 
