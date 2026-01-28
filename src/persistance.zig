@@ -17,7 +17,7 @@ pub fn get_record(offset: u64, length: usize, allocator: std.mem.Allocator) ![]c
     return buffer.items;
 }
 
-pub fn flush(store: KVStore) !void {
+pub fn flush(buffer: std.StringArrayHashMap([]const u8)) !void {
     var file: std.fs.File = undefined;
     const fileExists = try std.fs.cwd().access(filename, .{ .read = true });
     if (!fileExists) {
@@ -30,7 +30,7 @@ pub fn flush(store: KVStore) !void {
 
     try file.seekFromEnd(0);
 
-    for (store.table.items()) |entry| {
+    for (buffer.items()) |entry| {
         const key = entry.key;
         const value = entry.value;
         try file.writeAll(key);
