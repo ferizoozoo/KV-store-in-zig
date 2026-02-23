@@ -18,9 +18,7 @@ pub fn get_record(offset: usize, length: usize, allocator: std.mem.Allocator) ![
 }
 
 pub fn flush(buffer: *std.StringArrayHashMap([]const u8), main_index: *std.StringArrayHashMap(usize)) !void {
-    var file: std.fs.File = try std.fs.cwd().openFile(filename, .{
-        .mode = .read_write,
-    });
+    var file: std.fs.File = try std.fs.cwd().createFile(filename, .{});
     defer file.close();
 
     try file.seekFromEnd(0);

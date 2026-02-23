@@ -12,7 +12,7 @@ pub const HashTableError = error{
 
 pub const KVStore = struct {
     size: usize = 256,
-    capacity: usize = 16,
+    capacity: usize = 4,
     main_index: std.StringArrayHashMap(usize),
     active_buffer: std.StringArrayHashMap([]const u8),
 
@@ -22,12 +22,15 @@ pub const KVStore = struct {
         self.* = .{
             .main_index = std.StringArrayHashMap(usize).init(allocator),
             .active_buffer = std.StringArrayHashMap([]const u8).init(allocator),
+            .size = self.size,
+            .capacity = self.capacity,
         };
         return self;
     }
 
     pub fn insert(self: *KVStore, key: []const u8, value: []const u8) !void {
         if (self.active_buffer.capacity() == self.active_buffer.count()) {
+            std.debug.print("Active buffer full, flushing to disk...\n", .{});
             self.flush() catch |err| {
                 return err;
             };

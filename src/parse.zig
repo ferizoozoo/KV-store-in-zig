@@ -18,8 +18,10 @@ pub fn parse_request(s: *store.KVStore, request: []const u8) !void {
 fn parse_set_request(s: *store.KVStore, request: []const u8) !void {
     var parts = std.mem.splitScalar(u8, request, ' ');
     _ = parts.next(); // skip "SET"
-    const k = parts.next() orelse return;
-    const v = parts.next() orelse return;
+    const key_value = parts.next() orelse return;
+    var key_value_parts = std.mem.splitScalar(u8, key_value, '=');
+    const k = key_value_parts.next() orelse return;
+    const v = key_value_parts.next() orelse return;
 
     const key = std.mem.trim(u8, k, "\n\r\t");
     const value = std.mem.trim(u8, v, "\n\r\t");
@@ -31,7 +33,9 @@ fn parse_set_request(s: *store.KVStore, request: []const u8) !void {
 fn parse_get_request(s: *store.KVStore, request: []const u8) !void {
     var parts = std.mem.splitScalar(u8, request, ' ');
     _ = parts.next(); // skip "GET"
-    const key = parts.next() orelse return;
+    const key_value = parts.next() orelse return;
+    var key_value_parts = std.mem.splitScalar(u8, key_value, '=');
+    const key = key_value_parts.next() orelse return;
     const k = std.mem.trim(u8, key, "\n\r\t");
 
     const value = try s.get(k, std.heap.page_allocator);

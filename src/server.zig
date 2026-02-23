@@ -1,4 +1,7 @@
-// TODO: this needs definitely a refactor
+// TODO: Refactor for cross-platform networking and portability
+// - Replace platform-specific socket calls with `stream.read`/`stream.write`
+// - Avoid `std.os.windows` references so code builds on Linux and Windows
+// - Add unit tests for connection handling on both OSes
 
 const std = @import("std");
 const store = @import("store.zig");
@@ -54,22 +57,11 @@ pub const DBServer = struct {
 
             var buffer: [256]u8 = undefined;
 
-            // On Windows, we need to use recv() instead of ReadFile()
-            // TODO: check if we're on Windows or linux
-            const bytes_read_result = std.os.windows.ws2_32.recv(
-                connection.stream.handle,
-                @as([*]u8, @ptrCast(&buffer)),
-                buffer.len,
-                0,
-            );
-
-            if (bytes_read_result == std.os.windows.ws2_32.SOCKET_ERROR) {
-                const err_code = std.os.windows.GetLastError();
-                std.debug.print("recv() error: {d}\n", .{err_code});
+            // Use the stream API which is cross-platform (works on Linux & Windows)
+            const bytes_read = connection.stream.read(&buffer) catch |err| {
+                std.debug.print("Read error: {any}\n", .{err});
                 continue;
-            }
-
-            const bytes_read = @as(usize, @intCast(bytes_read_result));
+            };
 
             if (bytes_read == 0) {
                 std.debug.print("Connection closed by client\n", .{});
@@ -79,7 +71,6 @@ pub const DBServer = struct {
             std.debug.print("Received {d} bytes\n", .{bytes_read});
 
             if (bytes_read > 0) {
-                // if get request, read, if set request, write
                 try parse_request(s, buffer[0..bytes_read]);
             }
         }
