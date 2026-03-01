@@ -37,3 +37,20 @@ pub fn flush(buffer: *std.StringArrayHashMap([]const u8), main_index: *std.Strin
         try main_index.*.put(key, offset);
     }
 }
+
+pub fn snapshot() void {
+    // NOTE: read all records and turn them into a log file (naive implementation, not good)
+    // TODO: refactoring by just pass an allocator into the snapshot() function
+    // TODO: the transaction should be atomic
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    const destination_file = try std.fmt.allocPrint(allocator, "{}.snap", .{
+        .{std.time.timestamp()},
+    });
+    defer allocator.free(destination_file);
+
+    std.fs.cwd().copyFile(filename, "snapshots", destination_file) catch {
+        std.debug.print("Failed to create snapshot: {s}\n", .{destination_file});
+    };
+}
