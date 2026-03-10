@@ -1,6 +1,6 @@
 const std = @import("std");
 const sha1 = @import("std").crypto.hash.Sha1;
-const persistance = @import("persistance.zig");
+const storage = @import("storage.zig");
 
 const length = 1024; // TODO: determine length based on value size
 
@@ -48,7 +48,7 @@ pub const KVStore = struct {
         var value = self.active_buffer.get(key);
         if (value == null) {
             const offset = self.main_index.get(key) orelse return null;
-            value = try persistance.get_record(offset, length, allocator);
+            value = try storage.get_record(offset, length, allocator);
         }
         return value;
     }
@@ -64,6 +64,6 @@ pub const KVStore = struct {
     }
 
     pub fn flush(self: *KVStore) !void {
-        try persistance.flush(&self.active_buffer, &self.main_index);
+        try storage.flush(&self.active_buffer, &self.main_index);
     }
 };

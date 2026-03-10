@@ -38,6 +38,7 @@ pub fn flush(buffer: *std.StringArrayHashMap([]const u8), main_index: *std.Strin
     }
 }
 
+// TODO: this should be in a separate file, but we need to avoid circular dependencies for now
 pub fn snapshot() !void {
     const source_file_path = "data.db";
     const destination_file_path = try std.fmt.allocPrint(std.heap.page_allocator, "{}.snap", .{
