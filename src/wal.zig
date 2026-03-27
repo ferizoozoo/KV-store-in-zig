@@ -4,9 +4,17 @@ const operations = @import("operations.zig").Operation;
 
 const WAL_PATH = "wal.log";
 
-pub fn write_entry(entry: []const u8) !void {
-    const file = try std.fs.cwd().openFile(WAL_PATH, .{ .write = true, .append = true, .create = true });
+pub fn write_entry(operation: operations, key: []const u8, val: ?[]const u8) !void {
+    const file = try std.fs.cwd().openFile(WAL_PATH, .{ .mode = .write_only });
     defer file.close();
+
+    var buf: [100]u8 = undefined;
+
+    const entry = try switch (operation) {
+        .Insert => std.fmt.bufPrint(buf[0..], "INSERT {s} {s}\n", .{ key, val orelse "" }),
+        .Delete => std.fmt.bufPrint(buf[0..], "DELETE {s}\n", .{key}),
+        else => unreachable,
+    };
 
     try file.writeAll(entry);
 }
@@ -41,7 +49,7 @@ pub fn replay(s: *store.KVStore) !void {
         switch (parts[0]) {
             operations.Insert => try s.insert(parts[1], parts[2]),
             operations.Delete => s.remove(parts[1]),
-            operations.Update => try s.update(parts[1], parts[2]),
+            // operations.Update => try s.update(parts[1], parts[2]),
             else => std.debug.print("Unknown operation in WAL entry: {s}\n", .{entry}),
         }
         try std.fs.cwd().deleteFile(WAL_PATH);

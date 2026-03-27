@@ -1,6 +1,8 @@
 const std = @import("std");
 const sha1 = @import("std").crypto.hash.Sha1;
 const storage = @import("storage.zig");
+const wal = @import("wal.zig");
+const operations = @import("operations.zig").Operation;
 
 const length = 1024; // TODO: determine length based on value size
 
@@ -40,7 +42,7 @@ pub const KVStore = struct {
         const k = try self.active_buffer.allocator.dupe(u8, key);
         const v = try self.active_buffer.allocator.dupe(u8, value);
 
-        // TODO: WAL must be done here before changing the data structure
+        try wal.write_entry(operations.Insert, k, v);
         try self.active_buffer.put(k, v);
     }
 
@@ -53,9 +55,10 @@ pub const KVStore = struct {
         return value;
     }
 
-    pub fn remove(self: *KVStore, key: []const u8) void {
+    pub fn remove(self: *KVStore, key: []const u8) !void {
         _ = self.main_index.remove(key);
         _ = self.active_buffer.remove(key);
+        try wal.write_entry(operations.Delete, key, null);
     }
 
     pub fn clear(self: *KVStore) void {
