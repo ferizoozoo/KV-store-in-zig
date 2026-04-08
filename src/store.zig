@@ -14,7 +14,6 @@ pub const HashTableError = error{
 
 pub const KVStore = struct {
     size: usize = 256,
-    capacity: usize = 4,
     main_index: std.StringArrayHashMap(usize),
     active_buffer: std.StringArrayHashMap([]const u8),
 
@@ -25,19 +24,18 @@ pub const KVStore = struct {
             .main_index = std.StringArrayHashMap(usize).init(allocator),
             .active_buffer = std.StringArrayHashMap([]const u8).init(allocator),
             .size = self.size,
-            .capacity = self.capacity,
         };
         return self;
     }
 
     pub fn insert(self: *KVStore, key: []const u8, value: []const u8) !void {
-        if (self.active_buffer.capacity() == self.active_buffer.count()) {
+        if (self.active_buffer.capacity() == self.active_buffer.count() + 2 and self.active_buffer.capacity() != 1) {
             std.debug.print("Active buffer full, flushing to disk...\n", .{});
             self.flush() catch |err| {
                 return err;
             };
         }
-
+        std.debug.print("Capacity: {d}, Count: {d}\n", .{ self.active_buffer.capacity(), self.active_buffer.count() });
         // NOTE: Duplicating key and value to ensure they are owned by the store
         const k = try self.active_buffer.allocator.dupe(u8, key);
         const v = try self.active_buffer.allocator.dupe(u8, value);

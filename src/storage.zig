@@ -21,11 +21,13 @@ pub fn flush(buffer: *std.StringArrayHashMap([]const u8), main_index: *std.Strin
     var file: std.fs.File = try std.fs.cwd().createFile(filename, .{});
     defer file.close();
 
+    std.debug.print("Flushing {d} entries to disk...\n", .{buffer.count()});
     try file.seekFromEnd(0);
 
     var bufIt = buffer.iterator();
 
     while (bufIt.next()) |entry| {
+        std.debug.print("Flushing entry: key='{s}', value='{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
         const key = entry.key_ptr.*;
         const value = entry.value_ptr.*;
         try file.writeAll(key);
