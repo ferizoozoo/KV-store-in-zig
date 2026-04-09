@@ -5,8 +5,10 @@ const operations = @import("operations.zig").Operation;
 const WAL_PATH = "wal.log";
 
 pub fn write_entry(operation: operations, key: []const u8, val: ?[]const u8) !void {
-    const file = try std.fs.cwd().openFile(WAL_PATH, .{ .mode = .write_only });
+    const file = try std.fs.cwd().createFile(WAL_PATH, .{ .truncate = false });
     defer file.close();
+
+    try file.seekFromEnd(0);
 
     var buf: [100]u8 = undefined;
 
