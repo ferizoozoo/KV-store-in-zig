@@ -1,6 +1,6 @@
 const std = @import("std");
 const store = @import("store.zig");
-const storage = @import("storage.zig");
+const snapshot = @import("snapshot.zig");
 
 pub fn parse_request(s: *store.KVStore, request: []const u8) !void {
     if (request.len <= 2) {
@@ -60,6 +60,6 @@ fn parse_snapshot_request(s: *store.KVStore) !void {
     std.debug.print("Flushed active buffer\n", .{});
 
     // Create a snapshot of the current state
-    try storage.snapshot();
+    try snapshot.snapshot();
     std.debug.print("Created snapshot\n", .{});
 }
