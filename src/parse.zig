@@ -54,6 +54,17 @@ fn parse_get_request(s: *store.KVStore, request: []const u8) !void {
     std.debug.print("Received GET request for key: {s}, value: {s}\n", .{ k, v });
 }
 
+fn parse_delete_request(s: *store.KVStore, request: []const u8) !void {
+    var parts = std.mem.splitScalar(u8, request, ' ');
+    _ = parts.next(); // skip "DEL"
+    const key = parts.next() orelse return;
+    const k = std.mem.trim(u8, key, "\n\r\t");
+
+    try s.remove(k);
+
+    std.debug.print("Received DEL request for key: {s}", .{k});
+}
+
 fn parse_snapshot_request(s: *store.KVStore) !void {
     // Flush any pending data first
     try s.flush();

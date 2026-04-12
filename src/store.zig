@@ -56,6 +56,7 @@ pub const KVStore = struct {
     pub fn remove(self: *KVStore, key: []const u8) !void {
         _ = self.main_index.remove(key);
         _ = self.active_buffer.remove(key);
+        // TODO: think about if the record should be removed from disk or not
         try wal.write_entry(operations.Delete, key, null);
     }
 
