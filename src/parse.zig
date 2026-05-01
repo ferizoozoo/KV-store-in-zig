@@ -8,6 +8,7 @@ pub fn parse_request(s: *store.KVStore, request: []const u8) !void {
     }
 
     const first_three = request[0..3];
+    std.debug.print("Received request: {s}\n", .{request});
 
     if (std.mem.eql(u8, first_three, "GET")) {
         try parse_get_request(s, request);

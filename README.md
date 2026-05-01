@@ -19,6 +19,7 @@ The next goal is to evolve it into a more durable and scalable storage engine, m
 - [ ] add compaction
 - [ ] add compression
 - [ ] add secondary indexes
+- [ ] add security layers
 
 ### Notes
 

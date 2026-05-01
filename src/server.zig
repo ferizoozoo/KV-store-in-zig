@@ -4,6 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const store = @import("store.zig");
+const Logger = @import("logger.zig").Logger;
 const parse_request = @import("parse.zig").parse_request;
 
 var shutdown_flag: ?*std.atomic.Value(bool) = null;
@@ -15,22 +16,24 @@ pub const DBServer = struct {
     store: *store.KVStore,
     shutting_down: std.atomic.Value(bool),
     active_connections: std.Thread.WaitGroup,
+    logger: *Logger,
 
-    pub fn init(port: u16, host: []const u8) !DBServer {
-        const allocator = std.heap.page_allocator;
-        const address = try std.net.Address.parseIp4(host, port);
-        const kvStore = try store.KVStore.new(allocator);
-
-        std.debug.print("Initialized DBServer on {s}:{d}\n", .{ host, port });
-
-        return DBServer{
+    pub fn init(allocator: std.mem.Allocator, port: u16, host: []const u8, logger: *Logger) !*DBServer {
+        const self = try allocator.create(DBServer);
+        self.* = .{
             .port = port,
             .host = host,
-            .address = address,
-            .store = kvStore,
+            .address = try std.net.Address.parseIp4(host, port),
+            .store = try store.KVStore.new(allocator),
             .shutting_down = std.atomic.Value(bool).init(false),
             .active_connections = .{},
+            .logger = logger,
         };
+        return self;
+    }
+
+    pub fn deinit(self: *DBServer, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
     }
 
     pub fn start(self: *DBServer) !void {
@@ -54,56 +57,72 @@ pub const DBServer = struct {
                     std.Thread.sleep(100 * std.time.ns_per_ms);
                     continue;
                 },
-                error.ConnectionAborted => continue,
-                else => return err,
+                error.ConnectionAborted => {
+                    try self.logger.logWithType(.Warning, "Connection aborted by client");
+                    continue;
+                },
+                else => {
+                    var buffer: [256]u8 = undefined;
+                    const errMessage = try std.fmt.bufPrint(&buffer, "Failed to accept connection: {any}", .{err});
+                    try self.logger.logWithType(.Error, errMessage);
+                    continue;
+                },
             };
 
             self.active_connections.start();
             const thread = std.Thread.spawn(.{}, handle_connection, .{ self, connection }) catch |err| {
                 self.active_connections.finish();
                 connection.stream.close();
-                std.debug.print("Failed to spawn connection handler thread: {any}\n", .{err});
+                var buffer: [256]u8 = undefined;
+                const errMessage = try std.fmt.bufPrint(&buffer, "Failed to spawn connection handler thread: {any}", .{err});
+                try self.logger.logWithType(.Error, errMessage);
                 return err;
             };
             thread.detach();
         }
 
-        std.debug.print("Shutdown requested. Waiting for active connections to finish...\n", .{});
+        try self.logger.logWithType(.Info, "Shutdown requested. Waiting for active connections to finish...");
         self.active_connections.wait();
 
         self.store.flush() catch |err| {
-            std.debug.print("Failed to flush store during shutdown: {any}\n", .{err});
+            var buffer: [256]u8 = undefined;
+            const errMessage = try std.fmt.bufPrint(&buffer, "Failed to flush store during shutdown: {any}", .{err});
+            try self.logger.logWithType(.Error, errMessage);
             return err;
         };
 
-        std.debug.print("Server shutdown complete\n", .{});
+        try self.logger.logWithType(.Info, "Server shutdown complete");
     }
 
-    fn handle_connection(self: *DBServer, connection: std.net.Server.Connection) void {
+    fn handle_connection(self: *DBServer, connection: std.net.Server.Connection) !void {
         defer self.active_connections.finish();
 
         var client = connection;
         defer client.stream.close();
 
-        std.debug.print("Accepted connection from {any}\n", .{client.address});
-
-        var buffer: [256]u8 = undefined;
+        var read_buf: [512]u8 = undefined;
+        var log_buf: [256]u8 = undefined;
+        const infoMessage = try std.fmt.bufPrint(&log_buf, "Handling new connection from {f}", .{client.address});
+        try self.logger.logWithType(.Info, infoMessage);
 
         while (true) {
-            const bytes_read = client.stream.read(&buffer) catch |err| {
-                std.debug.print("Connection read failed: {any}\n", .{err});
+            const bytes_read = client.stream.read(&read_buf) catch |err| {
+                const errMessage = try std.fmt.bufPrint(&log_buf, "Connection read failed: {any}", .{err});
+                try self.logger.logWithType(.Error, errMessage);
                 return;
             };
 
             if (bytes_read == 0) {
-                std.debug.print("Connection closed by client\n", .{});
+                try self.logger.logWithType(.Info, "Connection closed by client");
                 return;
             }
 
-            std.debug.print("Received {d} bytes\n", .{bytes_read});
+            const infoMessage2 = try std.fmt.bufPrint(&log_buf, "Received {d} bytes from {f}", .{ bytes_read, client.address });
+            try self.logger.logWithType(.Info, infoMessage2);
 
-            parse_request(self.store, buffer[0..bytes_read]) catch |err| {
-                std.debug.print("Failed to parse request: {any}\n", .{err});
+            parse_request(self.store, read_buf[0..bytes_read]) catch |err| {
+                const errMessage = try std.fmt.bufPrint(&log_buf, "Failed to parse request: {any}", .{err});
+                try self.logger.logWithType(.Error, errMessage);
             };
         }
     }
