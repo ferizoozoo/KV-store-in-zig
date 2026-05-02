@@ -12,7 +12,7 @@ The next goal is to evolve it into a more durable and scalable storage engine, m
 
 ### Next Steps
 
-- [ ] improve error handling
+- [x] improve error handling
 - [ ] add WAL recovery on startup
 - [ ] define a durable record format with lengths and tombstones
 - [ ] flush the in-memory buffer to sorted SSTable-style files
