@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 const store = @import("store.zig");
 const Logger = @import("logger.zig").Logger;
 const parse_request = @import("parse.zig").parse_request;
+const wal = @import("wal.zig");
 
 var shutdown_flag: ?*std.atomic.Value(bool) = null;
 
@@ -16,19 +17,37 @@ pub const DBServer = struct {
     store: *store.KVStore,
     shutting_down: std.atomic.Value(bool),
     active_connections: std.Thread.WaitGroup,
-    logger: *Logger,
 
-    pub fn init(allocator: std.mem.Allocator, port: u16, host: []const u8, logger: *Logger) !*DBServer {
+    pub fn init(allocator: std.mem.Allocator, port: u16, host: []const u8, s: *store.KVStore, use_wal: bool) !*DBServer {
         const self = try allocator.create(DBServer);
         self.* = .{
             .port = port,
             .host = host,
             .address = try std.net.Address.parseIp4(host, port),
-            .store = try store.KVStore.new(allocator),
+            .store = s,
             .shutting_down = std.atomic.Value(bool).init(false),
             .active_connections = .{},
-            .logger = logger,
         };
+
+        if (use_wal) {
+            std.debug.print("Replaying WAL on startup...\n", .{});
+            var log_buffer: [256]u8 = undefined;
+            const infoMessage = try std.fmt.bufPrint(&log_buffer, "Replaying WAL on startup", .{});
+            try self.store.logger.logWithType(.Info, infoMessage);
+
+            wal.replay(self.store) catch |err| {
+                std.debug.print("Error replaying WAL: {any}\n", .{err});
+                var buffer: [256]u8 = undefined;
+                const errMessage = try std.fmt.bufPrint(&buffer, "Failed to replay WAL on startup: {any}", .{err});
+                try self.store.logger.logWithType(.Error, errMessage);
+                return err;
+            };
+
+            std.debug.print("WAL replay complete. Starting server...\n", .{});
+            const infoMessage2 = try std.fmt.bufPrint(&log_buffer, "WAL replay complete. Starting server...", .{});
+            try self.store.logger.logWithType(.Info, infoMessage2);
+        }
+
         return self;
     }
 
@@ -58,13 +77,13 @@ pub const DBServer = struct {
                     continue;
                 },
                 error.ConnectionAborted => {
-                    try self.logger.logWithType(.Warning, "Connection aborted by client");
+                    try self.store.logger.logWithType(.Warning, "Connection aborted by client");
                     continue;
                 },
                 else => {
                     var buffer: [256]u8 = undefined;
                     const errMessage = try std.fmt.bufPrint(&buffer, "Failed to accept connection: {any}", .{err});
-                    try self.logger.logWithType(.Error, errMessage);
+                    try self.store.logger.logWithType(.Error, errMessage);
                     continue;
                 },
             };
@@ -75,23 +94,23 @@ pub const DBServer = struct {
                 connection.stream.close();
                 var buffer: [256]u8 = undefined;
                 const errMessage = try std.fmt.bufPrint(&buffer, "Failed to spawn connection handler thread: {any}", .{err});
-                try self.logger.logWithType(.Error, errMessage);
+                try self.store.logger.logWithType(.Error, errMessage);
                 return err;
             };
             thread.detach();
         }
 
-        try self.logger.logWithType(.Info, "Shutdown requested. Waiting for active connections to finish...");
+        try self.store.logger.logWithType(.Info, "Shutdown requested. Waiting for active connections to finish...");
         self.active_connections.wait();
 
         self.store.flush() catch |err| {
             var buffer: [256]u8 = undefined;
             const errMessage = try std.fmt.bufPrint(&buffer, "Failed to flush store during shutdown: {any}", .{err});
-            try self.logger.logWithType(.Error, errMessage);
+            try self.store.logger.logWithType(.Error, errMessage);
             return err;
         };
 
-        try self.logger.logWithType(.Info, "Server shutdown complete");
+        try self.store.logger.logWithType(.Info, "Server shutdown complete");
     }
 
     fn handle_connection(self: *DBServer, connection: std.net.Server.Connection) !void {
@@ -103,26 +122,26 @@ pub const DBServer = struct {
         var read_buf: [512]u8 = undefined;
         var log_buf: [256]u8 = undefined;
         const infoMessage = try std.fmt.bufPrint(&log_buf, "Handling new connection from {f}", .{client.address});
-        try self.logger.logWithType(.Info, infoMessage);
+        try self.store.logger.logWithType(.Info, infoMessage);
 
         while (true) {
             const bytes_read = client.stream.read(&read_buf) catch |err| {
                 const errMessage = try std.fmt.bufPrint(&log_buf, "Connection read failed: {any}", .{err});
-                try self.logger.logWithType(.Error, errMessage);
+                try self.store.logger.logWithType(.Error, errMessage);
                 return;
             };
 
             if (bytes_read == 0) {
-                try self.logger.logWithType(.Info, "Connection closed by client");
+                try self.store.logger.logWithType(.Info, "Connection closed by client");
                 return;
             }
 
             const infoMessage2 = try std.fmt.bufPrint(&log_buf, "Received {d} bytes from {f}", .{ bytes_read, client.address });
-            try self.logger.logWithType(.Info, infoMessage2);
+            try self.store.logger.logWithType(.Info, infoMessage2);
 
             parse_request(self.store, read_buf[0..bytes_read]) catch |err| {
                 const errMessage = try std.fmt.bufPrint(&log_buf, "Failed to parse request: {any}", .{err});
-                try self.logger.logWithType(.Error, errMessage);
+                try self.store.logger.logWithType(.Error, errMessage);
             };
         }
     }

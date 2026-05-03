@@ -4,6 +4,7 @@ const storage = @import("storage.zig");
 const wal = @import("wal.zig");
 const operations = @import("operations.zig").Operation;
 const Mutex = std.Thread.Mutex;
+const Logger = @import("logger.zig").Logger;
 
 const length = 1024; // TODO: determine length based on value size
 
@@ -13,18 +14,21 @@ pub const HashTableError = error{
     InvalidKey,
 };
 
+// TODO: maybe we can have the allocator as a field in the KVStore struct and use it across the codebase instead of passing it around
 pub const KVStore = struct {
     main_index: std.StringArrayHashMap(usize),
     active_buffer: std.StringArrayHashMap([]const u8),
+    logger: *Logger,
     mu: Mutex,
 
-    pub fn new(allocator: std.mem.Allocator) !*KVStore {
+    pub fn new(allocator: std.mem.Allocator, logger: *Logger) !*KVStore {
         const self = try allocator.create(KVStore);
 
         self.* = .{
             .mu = Mutex{},
             .main_index = std.StringArrayHashMap(usize).init(allocator),
             .active_buffer = std.StringArrayHashMap([]const u8).init(allocator),
+            .logger = logger,
         };
         return self;
     }
@@ -64,8 +68,8 @@ pub const KVStore = struct {
         self.mu.lock();
         defer self.mu.unlock();
 
-        _ = self.main_index.remove(key);
-        _ = self.active_buffer.remove(key);
+        _ = self.main_index.orderedRemove(key);
+        _ = self.active_buffer.orderedRemove(key);
         // TODO: think about if the record should be removed from disk or not
         try wal.write_entry(operations.Delete, key, null);
     }
