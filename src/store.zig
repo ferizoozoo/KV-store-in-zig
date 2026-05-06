@@ -38,12 +38,14 @@ pub const KVStore = struct {
         defer self.mu.unlock();
 
         if (self.active_buffer.capacity() == self.active_buffer.count() + 2 and self.active_buffer.capacity() != 1) {
-            std.debug.print("Active buffer full, flushing to disk...\n", .{});
+            try self.logger.logWithType(.Info, "Active buffer full, flushing to disk...");
             self.flushLocked() catch |err| {
                 return err;
             };
         }
-        std.debug.print("Capacity: {d}, Count: {d}\n", .{ self.active_buffer.capacity(), self.active_buffer.count() });
+
+        try self.logger.logWithParameters(.Info, "Capacity: {d}, Count: {d}", .{ self.active_buffer.capacity(), self.active_buffer.count() });
+
         // NOTE: Duplicating key and value to ensure they are owned by the store
         const k = try self.active_buffer.allocator.dupe(u8, key);
         const v = try self.active_buffer.allocator.dupe(u8, value);

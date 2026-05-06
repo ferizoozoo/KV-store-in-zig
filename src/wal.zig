@@ -56,9 +56,7 @@ pub fn replay(s: *store.KVStore) !void {
     for (entries.items) |entry| {
 
         // Process each entry (e.g., apply to in-memory state)
-        var buffer: [256]u8 = undefined;
-        const infoMessage = try std.fmt.bufPrint(&buffer, "Replaying entry: {s}", .{entry});
-        try s.logger.logWithType(.Info, infoMessage);
+        try s.logger.logWithParameters(.Info, "Replaying entry: {s}", .{entry});
 
         var parts = std.mem.splitScalar(u8, entry, ' ');
 
@@ -70,8 +68,7 @@ pub fn replay(s: *store.KVStore) !void {
             operations.Delete => try s.remove(parts.next() orelse ""),
             // operations.Update => try s.update(parts[1], parts[2]),
             else => {
-                const errMessage = try std.fmt.bufPrint(&buffer, "Unknown operation in WAL entry: {s}", .{entry});
-                try s.logger.logWithType(.Error, errMessage);
+                try s.logger.logWithParameters(.Error, "Unknown operation in WAL entry: {s}", .{entry});
             },
         }
         try std.fs.cwd().deleteFile(WAL_PATH);

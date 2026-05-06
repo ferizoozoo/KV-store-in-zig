@@ -70,8 +70,10 @@ fn parse_snapshot_request(s: *store.KVStore) !void {
     // Flush any pending data first
     try s.flush();
     std.debug.print("Flushed active buffer\n", .{});
+    try s.logger.logWithType(.Info, "Flushed active buffer before snapshot");
 
     // Create a snapshot of the current state
     try snapshot.snapshot();
     std.debug.print("Created snapshot\n", .{});
+    try s.logger.logWithType(.Info, "Created snapshot");
 }

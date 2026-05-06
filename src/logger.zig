@@ -45,4 +45,24 @@ pub const Logger = struct {
         try self.file.writeAll(message);
         try self.file.writeAll("\n");
     }
+
+    pub fn logWithParameters(self: *Logger, logType: LogType, comptime format: []const u8, args: anytype) !void {
+        const prefix: []const u8 = switch (logType) {
+            .Info => "[INFO] ",
+            .Warning => "[WARNING] ",
+            .Error => "[ERROR] ",
+        };
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        try self.file.seekFromEnd(0);
+
+        try self.file.writeAll(prefix);
+
+        var buffer: [1024]u8 = undefined;
+        const formattedMessage = try std.fmt.bufPrint(buffer[0..], format, args);
+        try self.file.writeAll(formattedMessage);
+
+        try self.file.writeAll("\n");
+    }
 };
