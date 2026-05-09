@@ -2,6 +2,7 @@ const std = @import("std");
 const server = @import("server.zig");
 const Logger = @import("logger.zig").Logger;
 const store = @import("store.zig");
+const RequestParser = @import("parser.zig").RequestParser;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -17,11 +18,13 @@ pub fn main() !void {
     const logger = try Logger.init(allocator, "server.log");
     defer logger.deinit(allocator);
 
-    const s = try store.KVStore.new(allocator, logger);
+    const request_parser = RequestParser.new();
+
+    const s = try store.KVStore.new(allocator, logger, request_parser);
     defer s.clear();
 
-    const db_server = try server.DBServer.init(allocator, 12345, "127.0.0.1", s, use_wal);
-    defer db_server.deinit(allocator);
+    const db_server = try server.DBServer.init(12345, "127.0.0.1", s, use_wal);
+    defer db_server.deinit();
 
     try db_server.start();
 }

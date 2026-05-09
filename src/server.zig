@@ -1,11 +1,7 @@
-// TODO: Refactor for cross-platform networking and portability
-// - Add unit tests for connection handling on both OSes
-
 const std = @import("std");
 const builtin = @import("builtin");
 const store = @import("store.zig");
 const Logger = @import("logger.zig").Logger;
-const parse_request = @import("parse.zig").parse_request;
 const wal = @import("wal.zig");
 
 var shutdown_flag: ?*std.atomic.Value(bool) = null;
@@ -18,8 +14,8 @@ pub const DBServer = struct {
     shutting_down: std.atomic.Value(bool),
     active_connections: std.Thread.WaitGroup,
 
-    pub fn init(allocator: std.mem.Allocator, port: u16, host: []const u8, s: *store.KVStore, use_wal: bool) !*DBServer {
-        const self = try allocator.create(DBServer);
+    pub fn init(port: u16, host: []const u8, s: *store.KVStore, use_wal: bool) !*DBServer {
+        const self = try s.allocator.create(DBServer);
         self.* = .{
             .port = port,
             .host = host,
@@ -46,8 +42,8 @@ pub const DBServer = struct {
         return self;
     }
 
-    pub fn deinit(self: *DBServer, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *DBServer) void {
+        self.store.allocator.destroy(self);
     }
 
     pub fn start(self: *DBServer) !void {
@@ -124,7 +120,7 @@ pub const DBServer = struct {
 
             try self.store.logger.logWithParameters(.Info, "Received request: {s}", .{read_buf[0..bytes_read]});
 
-            parse_request(self.store, read_buf[0..bytes_read]) catch |err| {
+            self.store.rp.parse_request(self.store, read_buf[0..bytes_read]) catch |err| {
                 try self.store.logger.logWithParameters(.Error, "Failed to parse request: {any}", .{err});
             };
         }

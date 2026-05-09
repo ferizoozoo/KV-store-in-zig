@@ -1,12 +1,13 @@
 const std = @import("std");
 const sha1 = @import("std").crypto.hash.Sha1;
-const storage = @import("storage.zig");
 const wal = @import("wal.zig");
 const operations = @import("operations.zig").Operation;
 const Mutex = std.Thread.Mutex;
 const Logger = @import("logger.zig").Logger;
+const RequestParser = @import("parser.zig").RequestParser;
 
-const length = 1024; // TODO: determine length based on value size
+const LENGTH = 1024;
+const FILENAME = "data.db";
 
 pub const HashTableError = error{
     KeyNotFound,
@@ -14,22 +15,18 @@ pub const HashTableError = error{
     InvalidKey,
 };
 
-// TODO: maybe we can have the allocator as a field in the KVStore struct and use it across the codebase instead of passing it around
 pub const KVStore = struct {
+    allocator: std.mem.Allocator,
     main_index: std.StringArrayHashMap(usize),
     active_buffer: std.StringArrayHashMap([]const u8),
     logger: *Logger,
+    rp: RequestParser,
     mu: Mutex,
 
-    pub fn new(allocator: std.mem.Allocator, logger: *Logger) !*KVStore {
+    pub fn new(allocator: std.mem.Allocator, logger: *Logger, requestParser: RequestParser) !*KVStore {
         const self = try allocator.create(KVStore);
 
-        self.* = .{
-            .mu = Mutex{},
-            .main_index = std.StringArrayHashMap(usize).init(allocator),
-            .active_buffer = std.StringArrayHashMap([]const u8).init(allocator),
-            .logger = logger,
-        };
+        self.* = .{ .mu = Mutex{}, .main_index = std.StringArrayHashMap(usize).init(allocator), .active_buffer = std.StringArrayHashMap([]const u8).init(allocator), .logger = logger, .allocator = allocator, .rp = requestParser };
         return self;
     }
 
@@ -39,7 +36,7 @@ pub const KVStore = struct {
 
         if (self.active_buffer.capacity() == self.active_buffer.count() + 2 and self.active_buffer.capacity() != 1) {
             try self.logger.logWithType(.Info, "Active buffer full, flushing to disk...");
-            self.flushLocked() catch |err| {
+            self.flush() catch |err| {
                 return err;
             };
         }
@@ -47,21 +44,21 @@ pub const KVStore = struct {
         try self.logger.logWithParameters(.Info, "Capacity: {d}, Count: {d}", .{ self.active_buffer.capacity(), self.active_buffer.count() });
 
         // NOTE: Duplicating key and value to ensure they are owned by the store
-        const k = try self.active_buffer.allocator.dupe(u8, key);
-        const v = try self.active_buffer.allocator.dupe(u8, value);
+        const k = try self.allocator.dupe(u8, key);
+        const v = try self.allocator.dupe(u8, value);
 
         try wal.write_entry(operations.Insert, k, v);
         try self.active_buffer.put(k, v);
     }
 
-    pub fn get(self: *KVStore, key: []const u8, allocator: std.mem.Allocator) !?[]const u8 {
+    pub fn get(self: *KVStore, key: []const u8) !?[]const u8 {
         self.mu.lock();
         defer self.mu.unlock();
 
         var value = self.active_buffer.get(key);
         if (value == null) {
             const offset = self.main_index.get(key) orelse return null;
-            value = try storage.get_record(offset, length, allocator);
+            value = try get_record(offset, LENGTH, self.allocator);
         }
         return value;
     }
@@ -84,14 +81,72 @@ pub const KVStore = struct {
         self.active_buffer.clearAndFree();
     }
 
+    pub fn snapshot(self: *KVStore) !void {
+        const source_file_path = "data.db";
+        const destination_file_path = try std.fmt.allocPrint(self.allocator, "{}.snap", .{
+            std.time.timestamp(),
+        });
+        defer std.heap.page_allocator.free(destination_file_path);
+
+        const cwd = std.fs.cwd();
+        // ensure the snapshots directory exists (ignore error if it already does)
+        cwd.makeDir("snapshots") catch |err| {
+            if (err == error.PathAlreadyExists) {
+                // This is fine! The folder is already there.
+            } else {
+                // Something actually went wrong (e.g., PermissionDenied)
+                std.debug.print("Failed to create snapshots directory: {}\n", .{err});
+                return err;
+            }
+        };
+
+        var snapshots_dir = try cwd.openDir("snapshots", .{});
+        defer snapshots_dir.close();
+
+        cwd.copyFile(source_file_path, snapshots_dir, destination_file_path, .{}) catch |err| {
+            if (err == error.FileNotFound) {
+                std.debug.print("No data file to snapshot yet (data.db not found)\n", .{});
+            } else {
+                std.debug.print("Failed to create snapshot: {s} (error: {})\n", .{ destination_file_path, err });
+            }
+        };
+        std.debug.print("Snapshot request completed\n", .{});
+    }
+
     pub fn flush(self: *KVStore) !void {
         self.mu.lock();
         defer self.mu.unlock();
 
-        try self.flushLocked();
+        var file: std.fs.File = try std.fs.cwd().createFile(FILENAME, .{ .truncate = false });
+        defer file.close();
+
+        std.debug.print("Flushing {d} entries to disk...\n", .{self.active_buffer.count()});
+        try file.seekFromEnd(0);
+
+        var bufIt = self.active_buffer.iterator();
+
+        while (bufIt.next()) |entry| {
+            std.debug.print("Flushing entry: key='{s}', value='{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+            try file.writeAll(key);
+            try file.writeAll(" ");
+            try file.writeAll(value);
+            try file.writeAll("\n");
+
+            const offset = @as(usize, try file.getEndPos()) - (key.len + 1 + value.len + 1);
+            try self.main_index.put(key, offset);
+        }
     }
 
-    fn flushLocked(self: *KVStore) !void {
-        try storage.flush(&self.active_buffer, &self.main_index);
+    fn get_record(offset: usize, length: usize, allocator: std.mem.Allocator) ![]const u8 {
+        const file = try std.fs.cwd().openFile(FILENAME, .{ .mode = .read_only });
+        defer file.close();
+
+        var buffer = try std.ArrayList(u8).initCapacity(allocator, length);
+        defer buffer.deinit(allocator);
+
+        _ = try file.pread(buffer.items, offset);
+        return buffer.items;
     }
 };
