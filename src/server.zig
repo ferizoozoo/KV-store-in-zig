@@ -29,7 +29,7 @@ pub const DBServer = struct {
             std.debug.print("Replaying WAL on startup...\n", .{});
             try self.store.logger.logWithType(.Info, "Replaying WAL on startup");
 
-            wal.replay(self.store) catch |err| {
+            s.replay_wal_entries() catch |err| {
                 std.debug.print("Error replaying WAL: {any}\n", .{err});
                 try self.store.logger.logWithParameters(.Error, "Failed to replay WAL on startup: {any}", .{err});
                 return err;

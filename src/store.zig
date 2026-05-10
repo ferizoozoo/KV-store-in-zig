@@ -113,6 +113,35 @@ pub const KVStore = struct {
         std.debug.print("Snapshot request completed\n", .{});
     }
 
+    pub fn replay_wal_entries(self: *KVStore) !void {
+        var entries = try wal.read_entries(self.allocator);
+        defer {
+            for (entries.items) |item| self.allocator.free(item);
+            entries.deinit(self.allocator);
+        }
+
+        for (entries.items) |entry| {
+
+            // Process each entry (e.g., apply to in-memory state)
+            try self.logger.logWithParameters(.Info, "Replaying entry: {s}", .{entry});
+
+            var parts = std.mem.splitScalar(u8, entry, ' ');
+
+            const opStr = parts.next() orelse "";
+
+            const op = operations.fromString(opStr) orelse continue;
+            switch (op) {
+                operations.Insert => try self.insert(parts.next() orelse "", parts.next() orelse ""),
+                operations.Delete => try self.remove(parts.next() orelse ""),
+                // operations.Update => try s.update(parts[1], parts[2]),
+                else => {
+                    try self.logger.logWithParameters(.Error, "Unknown operation in WAL entry: {s}", .{entry});
+                },
+            }
+            try std.fs.cwd().deleteFile(wal.WAL_PATH);
+        }
+    }
+
     pub fn flush(self: *KVStore) !void {
         self.mu.lock();
         defer self.mu.unlock();

@@ -2,9 +2,7 @@ const std = @import("std");
 const store = @import("store.zig");
 const operations = @import("operations.zig").Operation;
 
-const WAL_PATH = "wal.log";
-
-const allocator = std.heap.page_allocator;
+pub const WAL_PATH = "wal.log";
 
 pub fn write_entry(operation: operations, key: []const u8, val: ?[]const u8) !void {
     const file = try std.fs.cwd().createFile(WAL_PATH, .{ .truncate = false });
@@ -23,7 +21,7 @@ pub fn write_entry(operation: operations, key: []const u8, val: ?[]const u8) !vo
     try file.writeAll(entry);
 }
 
-fn read_entries() !std.ArrayList([]const u8) {
+pub fn read_entries(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
     var entries: std.ArrayList([]const u8) = .empty;
     errdefer {
         for (entries.items) |item| allocator.free(item);
@@ -44,33 +42,4 @@ fn read_entries() !std.ArrayList([]const u8) {
     }
 
     return entries;
-}
-
-pub fn replay(s: *store.KVStore) !void {
-    var entries = try read_entries();
-    defer {
-        for (entries.items) |item| allocator.free(item);
-        entries.deinit(allocator);
-    }
-
-    for (entries.items) |entry| {
-
-        // Process each entry (e.g., apply to in-memory state)
-        try s.logger.logWithParameters(.Info, "Replaying entry: {s}", .{entry});
-
-        var parts = std.mem.splitScalar(u8, entry, ' ');
-
-        const opStr = parts.next() orelse "";
-
-        const op = operations.fromString(opStr) orelse continue;
-        switch (op) {
-            operations.Insert => try s.insert(parts.next() orelse "", parts.next() orelse ""),
-            operations.Delete => try s.remove(parts.next() orelse ""),
-            // operations.Update => try s.update(parts[1], parts[2]),
-            else => {
-                try s.logger.logWithParameters(.Error, "Unknown operation in WAL entry: {s}", .{entry});
-            },
-        }
-        try std.fs.cwd().deleteFile(WAL_PATH);
-    }
 }
