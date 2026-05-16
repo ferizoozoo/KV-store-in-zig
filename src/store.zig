@@ -5,6 +5,7 @@ const operations = @import("operations.zig").Operation;
 const Mutex = std.Thread.Mutex;
 const Logger = @import("logger.zig").Logger;
 const RequestParser = @import("parser.zig").RequestParser;
+const DBRecord = @import("record.zig").DBRecord;
 
 const LENGTH = 1024;
 const FILENAME = "data.db";
@@ -30,28 +31,25 @@ pub const KVStore = struct {
         return self;
     }
 
-    pub fn insert(self: *KVStore, key: []const u8, value: []const u8) !void {
+    // TODO: maybe instead of DBRecord, it should be something like DBRequest
+    pub fn insert(self: *KVStore, record: DBRecord) !void {
         self.mu.lock();
         defer self.mu.unlock();
 
         if (self.active_buffer.capacity() == self.active_buffer.count() + 2 and self.active_buffer.capacity() != 1) {
             try self.logger.logWithType(.Info, "Active buffer full, flushing to disk...");
-            self.flush() catch |err| {
-                return err;
-            };
+            try self.flushLocked();
         }
 
         try self.logger.logWithParameters(.Info, "Capacity: {d}, Count: {d}", .{ self.active_buffer.capacity(), self.active_buffer.count() });
 
-        // NOTE: Duplicating key and value to ensure they are owned by the store
-        const k = try self.allocator.dupe(u8, key);
-        const v = try self.allocator.dupe(u8, value);
-
-        try wal.write_entry(operations.Insert, k, v);
-        try self.active_buffer.put(k, v);
+        const owned_key = try self.allocator.dupe(u8, record.key);
+        const owned_value = try self.allocator.dupe(u8, record.value);
+        try wal.write_entry(operations.Insert, owned_key, owned_value);
+        try self.active_buffer.put(owned_key, owned_value);
     }
 
-    pub fn get(self: *KVStore, key: []const u8) !?[]const u8 {
+    pub fn get(self: *KVStore, key: []const u8) !?DBRecord {
         self.mu.lock();
         defer self.mu.unlock();
 
@@ -60,7 +58,13 @@ pub const KVStore = struct {
             const offset = self.main_index.get(key) orelse return null;
             value = try get_record(offset, LENGTH, self.allocator);
         }
-        return value;
+
+        return DBRecord{
+            .key = key,
+            .value = value.?,
+            .isDead = false, // TODO: that's the smell, isDead should come from database, not assigned to false here
+            .createdAt = null,
+        };
     }
 
     pub fn remove(self: *KVStore, key: []const u8) !void {
@@ -127,12 +131,15 @@ pub const KVStore = struct {
 
             var parts = std.mem.splitScalar(u8, entry, ' ');
 
+            // TODO: that and the record part is smelly
             const opStr = parts.next() orelse "";
 
             const op = operations.fromString(opStr) orelse continue;
+
+            const record = try DBRecord.serialize(entry);
             switch (op) {
-                operations.Insert => try self.insert(parts.next() orelse "", parts.next() orelse ""),
-                operations.Delete => try self.remove(parts.next() orelse ""),
+                operations.Insert => try self.insert(record),
+                operations.Delete => try self.remove(record.key),
                 // operations.Update => try s.update(parts[1], parts[2]),
                 else => {
                     try self.logger.logWithParameters(.Error, "Unknown operation in WAL entry: {s}", .{entry});
@@ -145,7 +152,10 @@ pub const KVStore = struct {
     pub fn flush(self: *KVStore) !void {
         self.mu.lock();
         defer self.mu.unlock();
+        try self.flushLocked();
+    }
 
+    fn flushLocked(self: *KVStore) !void {
         var file: std.fs.File = try std.fs.cwd().createFile(FILENAME, .{ .truncate = false });
         defer file.close();
 
@@ -166,16 +176,18 @@ pub const KVStore = struct {
             const offset = @as(usize, try file.getEndPos()) - (key.len + 1 + value.len + 1);
             try self.main_index.put(key, offset);
         }
+
+        var it = self.active_buffer.iterator();
+        while (it.next()) |entry| self.allocator.free(entry.value_ptr.*);
+        self.active_buffer.clearRetainingCapacity();
     }
 
-    fn get_record(offset: usize, length: usize, allocator: std.mem.Allocator) ![]const u8 {
+    fn get_record(offset: usize, length: usize, allocator: std.mem.Allocator) ![]u8 {
         const file = try std.fs.cwd().openFile(FILENAME, .{ .mode = .read_only });
         defer file.close();
 
-        var buffer = try std.ArrayList(u8).initCapacity(allocator, length);
-        defer buffer.deinit(allocator);
-
-        _ = try file.pread(buffer.items, offset);
-        return buffer.items;
+        const buf = try allocator.alloc(u8, length);
+        const bytes_read = try file.pread(buf, offset);
+        return buf[0..bytes_read];
     }
 };
