@@ -15,7 +15,7 @@ The next goal is to evolve it into a more durable and scalable storage engine, m
 - [x] improve error handling
 - [x] add WAL recovery on startup
 - [x] refactor the different parts
-- [ ] define a durable record format with lengths and tombstones
+- [x] define a durable record format with lengths and tombstones
 - [ ] flush the in-memory buffer to sorted SSTable-style files
 - [ ] add compaction
 - [ ] add compression
