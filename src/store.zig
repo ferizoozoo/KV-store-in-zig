@@ -16,9 +16,16 @@ pub const HashTableError = error{
     InvalidKey,
 };
 
+const MainIndexSortCtx = struct {
+    keys: []const []const u8,
+    pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+        return std.mem.lessThan(u8, ctx.keys[a], ctx.keys[b]);
+    }
+};
+
 pub const KVStore = struct {
     allocator: std.mem.Allocator,
-    main_index: std.StringArrayHashMap(usize),
+    main_index: std.StringArrayHashMap(usize), // TODO: needs to be replaced with a binary search tree or something that can be sorted
     active_buffer: std.StringArrayHashMap([]const u8),
     logger: *Logger,
     rp: RequestParser,
@@ -64,6 +71,7 @@ pub const KVStore = struct {
             .value = value.?,
             .isDead = false, // TODO: that's the smell, isDead should come from database, not assigned to false here
             .createdAt = null,
+            .timestampStr = null,
         };
     }
 
@@ -162,20 +170,30 @@ pub const KVStore = struct {
         std.debug.print("Flushing {d} entries to disk...\n", .{self.active_buffer.count()});
         try file.seekFromEnd(0);
 
+        // TODO: Maybe the DBRecord type should be used here instead of the raw key/value pair
         var bufIt = self.active_buffer.iterator();
 
         while (bufIt.next()) |entry| {
+            // TODO: Use DBRecord type here instead of raw key/value pair
             std.debug.print("Flushing entry: key='{s}', value='{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
             const key = entry.key_ptr.*;
             const value = entry.value_ptr.*;
+            const is_tombstone = "1";
+            const timeStampStr = try std.fmt.allocPrint(self.allocator, "{any}", .{std.time.timestamp()});
             try file.writeAll(key);
             try file.writeAll(" ");
             try file.writeAll(value);
+            try file.writeAll(" ");
+            try file.writeAll(is_tombstone);
+            try file.writeAll(" ");
+            try file.writeAll(timeStampStr);
             try file.writeAll("\n");
 
             const offset = @as(usize, try file.getEndPos()) - (key.len + 1 + value.len + 1);
             try self.main_index.put(key, offset);
         }
+
+        self.main_index.sort(MainIndexSortCtx{ .keys = self.main_index.keys() });
 
         var it = self.active_buffer.iterator();
         while (it.next()) |entry| self.allocator.free(entry.value_ptr.*);

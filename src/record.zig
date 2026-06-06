@@ -5,9 +5,10 @@ pub const DBRecord = struct {
     value: []const u8,
     isDead: bool,
     createdAt: ?[]const u8,
+    timestampStr: ?[]const u8,
 
     pub fn init(key: []const u8, value: []const u8) DBRecord {
-        return DBRecord{ .key = key, .value = value, .isDead = false, .createdAt = null };
+        return DBRecord{ .key = key, .value = value, .isDead = false, .createdAt = null, .timestampStr = null };
     }
 
     pub fn serialize(recordStr: []const u8) !DBRecord {
@@ -18,7 +19,7 @@ pub const DBRecord = struct {
         const key = it2.next() orelse body.?;
         const value = std.mem.trimRight(u8, it2.next() orelse "", "\r\n");
 
-        return DBRecord{ .key = key, .value = value, .isDead = false, .createdAt = "" };
+        return DBRecord{ .key = key, .value = value, .isDead = false, .createdAt = "", .timestampStr = null };
     }
 
     pub fn deserialize(self: DBRecord, allocator: std.mem.Allocator) ![]u8 {
