@@ -200,6 +200,10 @@ pub const KVStore = struct {
         self.active_buffer.clearRetainingCapacity();
     }
 
+    /// TODO: this should return the DBRecord instead of just the value, because we need to
+    ///  know if it's a tombstone or not, and also the timestamp for compaction purposes.
+    ///  Also, maybe the DBRecord should be renamed to something like DBEntry, because it's not really a
+    ///  record in the traditional sense, it's more of an entry in the log.
     fn get_record(offset: usize, length: usize, allocator: std.mem.Allocator) ![]u8 {
         const file = try std.fs.cwd().openFile(FILENAME, .{ .mode = .read_only });
         defer file.close();

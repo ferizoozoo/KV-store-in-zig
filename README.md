@@ -16,11 +16,12 @@ The next goal is to evolve it into a more durable and scalable storage engine, m
 - [x] add WAL recovery on startup
 - [x] refactor the different parts
 - [x] define a durable record format with lengths and tombstones
-- [ ] flush the in-memory buffer to sorted SSTable-style files
+- [x] flush the in-memory buffer to sorted SSTable-style files
 - [ ] add compaction
 - [ ] add compression
 - [ ] add secondary indexes
 - [ ] add security layers
+- [ ] convert the hashtable of the main index in the store, to a balanced tree
 
 ### Notes
 
